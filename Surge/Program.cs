@@ -1,8 +1,17 @@
 using Surge.Components;
+using Surge.Options;
+using Surge.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
+builder.Services.AddOptions<RuleSyncOptions>()
+    .BindConfiguration("RuleSync")
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services.AddHostedService<RuleSyncService>();
+
 builder.Services.AddRazorComponents();
 
 var app = builder.Build();
