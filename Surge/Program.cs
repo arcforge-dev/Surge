@@ -5,14 +5,16 @@ using Surge.Services;
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
-builder.Services.AddOptions<RuleSyncOptions>()
-    .BindConfiguration("RuleSync")
+
+builder.Services.AddRazorComponents();
+
+builder.Services.AddOptions<RuleProcessingOptions>()
+    .BindConfiguration("RuleProcessing")
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
-builder.Services.AddHostedService<RuleSyncService>();
-
-builder.Services.AddRazorComponents();
+builder.Services.AddSingleton<RuleProcessingService>();
+builder.Services.AddHostedService<RuleProcessingHostedService>();
 
 var app = builder.Build();
 
