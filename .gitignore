@@ -3,3 +3,6 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+RuleSet/
+Surge.sln.DotSettings.user
+wwwroot/ruleset
