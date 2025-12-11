@@ -114,7 +114,10 @@ public sealed class RuleProcessingService {
         {
             return;
         }
-
+        if (filePath.Contains("Resolve", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
         var builder = aggregate.TryGetValue(category, out var existing)
             ? existing
             : aggregate[category] = new RuleSegmentsBuilder(category);
@@ -187,12 +190,7 @@ public sealed class RuleProcessingService {
                 type.Equals("IP-CIDR6", StringComparison.OrdinalIgnoreCase) ||
                 type.Equals("IP-ASN", StringComparison.OrdinalIgnoreCase))
             {
-                var isNoResolve = payload.Contains("no-resolve", StringComparison.OrdinalIgnoreCase);
-                if (isNoResolve)
-                {
-                    nonIp.Add(line);
-                }
-                else if (IsIpPayload(payload) || IsAsn(payload))
+                if (IsIpPayload(payload) || IsAsn(payload))
                 {
                     ip.Add(line);
                 }
@@ -218,6 +216,7 @@ public sealed class RuleProcessingService {
             }
 
             nonIp.Add(line);
+
             
         }
 
