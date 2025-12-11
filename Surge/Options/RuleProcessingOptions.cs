@@ -1,11 +1,10 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace Surge.Options;
 
-public sealed class RuleProcessingOptions
-{
+using System.ComponentModel.DataAnnotations;
+
+public sealed class RuleProcessingOptions {
     [Required]
-    public string SourceDirectory { get; set; } = "../RuleSet/ios_rule_script";
+    public string SourceDirectory { get; set; } = "../RuleSet";
 
     [Required]
     public string OutputSubdirectory { get; set; } = "ruleset";

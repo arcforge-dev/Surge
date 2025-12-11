@@ -13,6 +13,12 @@ public sealed class RuleProcessingService {
         "USER-AGENT", "URL-REGEX", "PROCESS-NAME"
     }, StringComparer.OrdinalIgnoreCase);
 
+    private static readonly HashSet<string> NoCategorys = new(
+    new[]
+    {
+        "ip", "non_ip", "domainset"
+    }, StringComparer.OrdinalIgnoreCase);
+
     private readonly IWebHostEnvironment _environment;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -45,8 +51,10 @@ public sealed class RuleProcessingService {
                 throw new DirectoryNotFoundException($"Rule repository not found at {repoRoot}");
             }
 
-            var sourceClash = Path.Combine(repoRoot, "rule", "Clash");
-            var sourceSurge = Path.Combine(repoRoot, "rule", "Surge");
+            var sourceBlackClash = Path.Combine(repoRoot, "ios_rule_script", "rule", "Clash");
+            var sourceBlackSurge = Path.Combine(repoRoot, "ios_rule_script", "rule", "Surge");
+            var sourceSkkClash = Path.Combine(repoRoot, "ruleset.skk.moe", "Clash");
+            var sourceSkkSurge = Path.Combine(repoRoot, "ruleset.skk.moe", "List");
             var outputRoot = OutputRoot;
 
             if (Directory.Exists(outputRoot))
@@ -55,8 +63,10 @@ public sealed class RuleProcessingService {
             }
             Directory.CreateDirectory(outputRoot);
 
-            await ProcessClientAsync(sourceClash, Path.Combine(outputRoot, "Clash"), "txt", cancellationToken);
-            await ProcessClientAsync(sourceSurge, Path.Combine(outputRoot, "Surge"), "conf", cancellationToken);
+            await ProcessClientAsync(sourceSkkClash, Path.Combine(outputRoot, "Clash"), "txt", cancellationToken);
+            await ProcessClientAsync(sourceSkkSurge, Path.Combine(outputRoot, "Surge"), "conf", cancellationToken);
+            await ProcessClientAsync(sourceBlackClash, Path.Combine(outputRoot, "Clash"), "txt", cancellationToken);
+            await ProcessClientAsync(sourceBlackSurge, Path.Combine(outputRoot, "Surge"), "conf", cancellationToken);
         }
         finally
         {
@@ -77,17 +87,19 @@ public sealed class RuleProcessingService {
 
         foreach (var directory in Directory.EnumerateDirectories(sourceRoot))
         {
-            var category = Path.GetFileName(directory)!;
             foreach (var file in Directory.EnumerateFiles(directory))
             {
-                ProcessFile(file, category, aggregate, cancellationToken);
+                var category = Path.GetFileName(directory)!;
+                if (NoCategorys.Contains(category))
+                {
+                    category = "skk_" + Path.GetFileNameWithoutExtension(file);
+                }
+                else
+                {
+                    category = "black_" + category;
+                }
+                ProcessFile(file, category.ToLower(), aggregate, cancellationToken);
             }
-        }
-
-        foreach (var file in Directory.EnumerateFiles(sourceRoot))
-        {
-            var category = Path.GetFileNameWithoutExtension(file);
-            ProcessFile(file, category, aggregate, cancellationToken);
         }
 
         foreach (var (category, builder) in aggregate)
@@ -170,7 +182,10 @@ public sealed class RuleProcessingService {
             {
                 continue;
             }
-
+            if (line.Contains("ruleset.skk.moe"))
+            {
+                continue;
+            }
             if (!line.Contains(','))
             {
                 if (IsCidr(line) || IPAddress.TryParse(line, out _))
@@ -217,7 +232,7 @@ public sealed class RuleProcessingService {
 
             nonIp.Add(line);
 
-            
+
         }
 
         return new RuleSegments(ip, nonIp, domainSet);
