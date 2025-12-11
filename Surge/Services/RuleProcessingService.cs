@@ -109,7 +109,8 @@ public sealed class RuleProcessingService {
         var fileExtension = Path.GetExtension(filePath);
         if (fileExtension.Equals(".md", StringComparison.OrdinalIgnoreCase) ||
             fileExtension.Equals(".yaml", StringComparison.OrdinalIgnoreCase) ||
-            fileExtension.Equals(".yml", StringComparison.OrdinalIgnoreCase))
+            fileExtension.Equals(".yml", StringComparison.OrdinalIgnoreCase) ||
+            fileExtension.Equals(".sgmodule", StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
@@ -169,6 +170,11 @@ public sealed class RuleProcessingService {
 
             if (!line.Contains(','))
             {
+                if (IsCidr(line) || IPAddress.TryParse(line, out _))
+                {
+                    ip.Add(line);
+                    continue;
+                }
                 domainSet.Add(NormalizeDomain(line, origin));
                 continue;
             }
@@ -178,35 +184,26 @@ public sealed class RuleProcessingService {
             var payload = line[(commaIndex + 1)..].Trim();
 
             if (type.Equals("IP-CIDR", StringComparison.OrdinalIgnoreCase) ||
-                type.Equals("IP-CIDR6", StringComparison.OrdinalIgnoreCase))
+                type.Equals("IP-CIDR6", StringComparison.OrdinalIgnoreCase) ||
+                type.Equals("IP-ASN", StringComparison.OrdinalIgnoreCase))
             {
                 var isNoResolve = payload.Contains("no-resolve", StringComparison.OrdinalIgnoreCase);
                 if (isNoResolve)
                 {
                     nonIp.Add(line);
                 }
-                else if (IsIpPayload(payload))
+                else if (IsIpPayload(payload) || IsAsn(payload))
                 {
                     ip.Add(line);
                 }
                 else
                 {
-                    throw new InvalidDataException($"Unexpected IP payload '{payload}' in {origin}");
+                    throw new InvalidDataException($"Unexpected IP or non-IP payload '{payload}' in {origin}");
                 }
 
                 continue;
             }
 
-            if (type.Equals("IP-ASN", StringComparison.OrdinalIgnoreCase))
-            {
-                if (IsAsn(payload))
-                {
-                    ip.Add(line);
-                    continue;
-                }
-
-                throw new InvalidDataException($"Invalid ASN payload '{payload}' in {origin}");
-            }
 
             if (NonIpPrefixes.Contains(type))
             {
@@ -220,7 +217,8 @@ public sealed class RuleProcessingService {
                 continue;
             }
 
-            domainSet.Add(NormalizeDomain(payload, origin));
+            nonIp.Add(line);
+            
         }
 
         return new RuleSegments(ip, nonIp, domainSet);
@@ -279,7 +277,7 @@ public sealed class RuleProcessingService {
             throw new InvalidDataException($"Empty domain entry detected in {origin}");
         }
 
-        return domain.ToLowerInvariant();
+        return input.ToLowerInvariant();
     }
 
     private static void WriteSegment(string directory, string fileName, IReadOnlyCollection<string> lines)
