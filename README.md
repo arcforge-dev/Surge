@@ -72,3 +72,15 @@ dotnet build -c Release
 dotnet run -c Release -- \
   --out ./dist \
   --origin "local"
+```
+
+### Run with Docker
+
+Prebuilt image: `ryancooper001/arcforge-surge:latest`
+
+```bash
+docker pull ryancooper001/arcforge-surge:latest
+docker run --rm -p 8080:8080 -v surge-ruleset:/RuleSet --name surge ryancooper001/arcforge-surge:latest
+```
+
+Then open `http://localhost:8080`.
