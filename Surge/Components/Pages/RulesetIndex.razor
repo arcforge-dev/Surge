@@ -1,0 +1,97 @@
+@page "/ruleset"
+
+<PageTitle>Ruleset</PageTitle>
+
+@inject RuleSetIndexService IndexService
+
+<h1>Ruleset</h1>
+<p class="text-muted">Browse generated Clash and Surge ruleset files. Click a file to open its raw content.</p>
+
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3 ruleset-toolbar">
+    <input class="form-control ruleset-search" placeholder="Search files..." @bind="search" @bind:event="oninput" />
+    <button class="btn btn-outline-primary btn-sm" @onclick="ReloadAsync">Refresh</button>
+</div>
+
+@if (index == null)
+{
+    <p><em>Loading...</em></p>
+}
+else if (index.Clients.Count == 0)
+{
+    <div class="alert alert-warning">No ruleset files found yet.</div>
+}
+else
+{
+    @foreach (var client in index.Clients)
+    {
+        var total = client.Categories.Sum(c => c.Files.Count);
+        <details class="client-section mb-3" open>
+            <summary class="client-summary d-flex justify-content-between align-items-center">
+                <span>@client.Name</span>
+                <span class="badge text-bg-secondary">@total</span>
+            </summary>
+
+            <div class="mt-3">
+                <div class="row g-3">
+                    @foreach (var category in client.Categories)
+                    {
+                        var filteredFiles = FilterFiles(category.Files);
+                        <div class="col-12 col-md-6 col-lg-4">
+                            <details class="category-section h-100" open>
+                                <summary class="category-summary d-flex justify-content-between align-items-center">
+                                    <span>@category.Name</span>
+                                    <span class="badge text-bg-light">@filteredFiles.Count</span>
+                                </summary>
+
+                                @if (filteredFiles.Count == 0)
+                                {
+                                    <div class="p-3 text-muted small">No matches</div>
+                                }
+                                else
+                                {
+                                    <ul class="list-group list-group-flush">
+                                        @foreach (var file in filteredFiles)
+                                        {
+                                            <li class="list-group-item ruleset-file">
+                                                <a href="@file.Url" target="_blank" rel="noopener">@file.Name</a>
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            </details>
+                        </div>
+                    }
+                </div>
+            </div>
+        </details>
+    }
+}
+
+@code {
+    private RuleSetIndex? index;
+    private string search = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        index = await IndexService.GetIndexAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        index = null;
+        search = string.Empty;
+        index = await IndexService.GetIndexAsync(forceRefresh: true);
+    }
+
+    private IReadOnlyList<RuleSetFile> FilterFiles(IReadOnlyList<RuleSetFile> files)
+    {
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            return files;
+        }
+
+        return files
+            .Where(f => f.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+}

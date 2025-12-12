@@ -14,6 +14,7 @@ builder.Services.AddOptions<RuleProcessingOptions>()
     .ValidateOnStart();
 
 builder.Services.AddSingleton<RuleProcessingService>();
+builder.Services.AddSingleton<RuleSetIndexService>();
 builder.Services.AddHostedService<RuleProcessingHostedService>();
 
 var app = builder.Build();

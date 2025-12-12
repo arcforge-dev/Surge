@@ -1,0 +1,68 @@
+.ruleset-toolbar .ruleset-search {
+    min-width: 240px;
+    max-width: 420px;
+}
+
+.client-section,
+.category-section {
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    background: var(--bs-body-bg);
+}
+
+.client-summary {
+    padding: .75rem 1rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+}
+
+.client-summary::-webkit-details-marker {
+    display: none;
+}
+
+.client-summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: .5rem;
+    transition: transform .15s ease-in-out;
+}
+
+.client-section[open] > .client-summary::before {
+    transform: rotate(90deg);
+}
+
+.category-summary {
+    padding: .5rem .75rem;
+    font-weight: 500;
+    background: var(--bs-light-bg-subtle);
+    border-bottom: 1px solid var(--bs-border-color);
+    cursor: pointer;
+    list-style: none;
+}
+
+.category-summary::-webkit-details-marker {
+    display: none;
+}
+
+.category-summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: .4rem;
+    transition: transform .15s ease-in-out;
+}
+
+.category-section[open] > .category-summary::before {
+    transform: rotate(90deg);
+}
+
+.ruleset-file a {
+    text-decoration: none;
+    word-break: break-all;
+}
+
+.ruleset-file a:hover {
+    text-decoration: underline;
+}
+
