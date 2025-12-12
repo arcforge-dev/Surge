@@ -6,7 +6,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddRazorComponents();
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
 builder.Services.AddOptions<RuleProcessingOptions>()
     .BindConfiguration("RuleProcessing")
@@ -15,6 +16,7 @@ builder.Services.AddOptions<RuleProcessingOptions>()
 
 builder.Services.AddSingleton<RuleProcessingService>();
 builder.Services.AddSingleton<RuleSetIndexService>();
+builder.Services.AddSingleton<RuleSetFileService>();
 builder.Services.AddHostedService<RuleProcessingHostedService>();
 
 var app = builder.Build();
@@ -33,6 +35,7 @@ app.UseHttpsRedirection();
 app.UseAntiforgery();
 
 app.MapStaticAssets();
-app.MapRazorComponents<App>();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
 
 app.Run();

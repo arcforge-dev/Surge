@@ -1,4 +1,5 @@
 @page "/ruleset"
+@rendermode InteractiveServer
 
 <PageTitle>Ruleset</PageTitle>
 
@@ -53,7 +54,7 @@ else
                                         @foreach (var file in filteredFiles)
                                         {
                                             <li class="list-group-item ruleset-file">
-                                                <a href="@file.Url" target="_blank" rel="noopener">@file.Name</a>
+                                                <a href="@GetViewUrl(client.Name, category.Name, file.Name)">@file.Name</a>
                                             </li>
                                         }
                                     </ul>
@@ -80,6 +81,7 @@ else
     {
         index = null;
         search = string.Empty;
+        StateHasChanged();
         index = await IndexService.GetIndexAsync(forceRefresh: true);
     }
 
@@ -93,5 +95,15 @@ else
         return files
             .Where(f => f.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
             .ToList();
+    }
+
+    private static string GetViewUrl(string clientName, string categoryName, string fileName)
+    {
+        return "/ruleset/view/" + string.Join('/', new[]
+        {
+            Uri.EscapeDataString(clientName),
+            Uri.EscapeDataString(categoryName),
+            Uri.EscapeDataString(fileName)
+        });
     }
 }

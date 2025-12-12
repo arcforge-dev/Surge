@@ -1,0 +1,65 @@
+@page "/ruleset/view/{Client}/{Category}/{FileName}"
+@rendermode InteractiveServer
+
+<PageTitle>@FileName</PageTitle>
+
+@inject RuleSetFileService FileService
+
+<h1>@FileName</h1>
+<div class="text-muted small mb-2">@Client / @Category</div>
+
+@if (isLoading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (file == null)
+{
+    <div class="alert alert-danger">File not found.</div>
+}
+else
+{
+    <div class="d-flex flex-wrap gap-2 align-items-center mb-3 ruleset-file-toolbar">
+        <a class="btn btn-outline-secondary btn-sm" href="/ruleset">Back</a>
+        <a class="btn btn-outline-primary btn-sm" href="@file.RawUrl" target="_blank" rel="noopener">Raw</a>
+        <span class="ms-auto text-muted small">@FormatSize(file.SizeBytes) · @file.LastModified.ToLocalTime():g</span>
+    </div>
+
+    <pre class="ruleset-content">@file.Content</pre>
+}
+
+@code {
+    [Parameter] public string Client { get; set; } = string.Empty;
+    [Parameter] public string Category { get; set; } = string.Empty;
+    [Parameter] public string FileName { get; set; } = string.Empty;
+
+    private RuleSetFileContent? file;
+    private bool isLoading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        file = null;
+        StateHasChanged();
+
+        file = await FileService.GetFileAsync(Client, Category, FileName);
+        isLoading = false;
+    }
+
+    private static string FormatSize(long sizeBytes)
+    {
+        if (sizeBytes < 1024)
+        {
+            return $"{sizeBytes} B";
+        }
+
+        var kib = sizeBytes / 1024d;
+        if (kib < 1024)
+        {
+            return $"{kib:0.#} KiB";
+        }
+
+        var mib = kib / 1024d;
+        return $"{mib:0.#} MiB";
+    }
+}
+

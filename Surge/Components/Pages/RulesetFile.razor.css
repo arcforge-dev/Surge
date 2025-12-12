@@ -1,0 +1,21 @@
+.ruleset-file-toolbar {
+    position: sticky;
+    top: 0;
+    background: var(--bs-body-bg);
+    padding: .25rem 0;
+    z-index: 1;
+}
+
+.ruleset-content {
+    white-space: pre;
+    font-family: var(--bs-font-monospace);
+    font-size: .9rem;
+    line-height: 1.4;
+    border: 1px solid var(--bs-border-color);
+    border-radius: .5rem;
+    padding: 1rem;
+    background: var(--bs-body-bg);
+    max-height: 70vh;
+    overflow: auto;
+}
+
