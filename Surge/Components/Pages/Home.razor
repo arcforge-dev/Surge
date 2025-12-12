@@ -1,3 +1,108 @@
 ﻿@page "/"
 
 <PageTitle>Home</PageTitle>
+
+<h1>ArcForge Surge</h1>
+
+<p class="lead">
+    A ruleset builder written in <strong>.NET</strong>.
+    It pulls rule sources from upstream projects, parses them line by line, classifies them into
+    <strong>Domain / Non-IP / IP</strong> segments, then reorders, cleans, and regenerates ready-to-use rule files with a unified structure.
+    The generated rules are intended to be published via a web interface for browsing and downloading.
+</p>
+
+<blockquote class="blockquote">
+    <p class="mb-0">
+        Designed for users who want to unify their own ruleset style, reuse mature upstream rule sources,
+        and generate well-structured, consistent rule outputs.
+    </p>
+</blockquote>
+
+<hr class="my-4" />
+
+<h2>✨ Features</h2>
+<ul>
+    <li>
+        <strong>Line-by-line parsing with controlled rebuilding</strong><br />
+        Standardizes, classifies, and reorders rules (Domain-first, IP as final fallback)
+    </li>
+    <li>
+        <strong>Unified output structure</strong><br />
+        Generates rules using a consistent directory and file naming layout, suitable for mirroring and redistribution
+    </li>
+    <li>
+        <strong>Multiple upstream support</strong><br />
+        Can aggregate rules from different sources (e.g. ad blocking, streaming services, vendor IP ranges)
+    </li>
+    <li>
+        <strong>Automatic noise filtering</strong><br />
+        Ignores comments, empty lines, and signature placeholders (such as marker lines containing <code>ruleset.skk.moe</code>)
+    </li>
+    <li>
+        <strong>Extensible rule strategy</strong><br />
+        Customizable behavior, including:
+        <ul>
+            <li>
+                Which prefixes are treated as <em>Non-IP</em> rules
+                (<code>DOMAIN</code>, <code>URL-REGEX</code>, <code>USER-AGENT</code>, <code>PROCESS-NAME</code>, etc.)
+            </li>
+            <li>Whether IP rules should automatically include <code>no-resolve</code></li>
+            <li>Whether output should be split into <code>domainset / non_ip / ip</code> segments</li>
+        </ul>
+    </li>
+    <li>
+        <strong>Compliant metadata headers</strong><br />
+        Generated rule files can automatically include license information, upstream attribution, timestamps,
+        and rule counts for traceability and redistribution
+    </li>
+</ul>
+
+<hr class="my-4" />
+
+<h2>🧠 Rule Segmentation &amp; Ordering (Core Design)</h2>
+<p>By default, generated rules follow this order:</p>
+<ol>
+    <li>
+        <strong>Domain-based rules first</strong><br />
+        (<code>DOMAIN</code>, <code>DOMAIN-SUFFIX</code>, <code>DOMAIN-KEYWORD</code>, <code>DOMAIN-WILDCARD</code>, …)
+    </li>
+    <li>
+        <strong>Non-IP rules next</strong><br />
+        (<code>URL-REGEX</code>, <code>USER-AGENT</code>, <code>PROCESS-NAME</code>, logical <code>AND</code> / <code>OR</code> combinations, etc.)
+    </li>
+    <li>
+        <strong>IP-based rules as the final fallback</strong><br />
+        (<code>IP-CIDR</code>, <code>IP-CIDR6</code>, <code>IP-ASN</code>, <code>GEOIP</code>, …)
+    </li>
+</ol>
+
+<h3>Why this order?</h3>
+<ul>
+    <li>Most requests are matched during the string-based phase, without requiring DNS resolution</li>
+    <li>IP rules are only evaluated as a last resort, keeping the ruleset clearer and easier to maintain</li>
+</ul>
+
+<hr class="my-4" />
+
+<h2>🚀 Quick Start</h2>
+
+<h3>Requirements</h3>
+<ul>
+    <li>.NET SDK (recommended: <strong>.NET 10</strong>)</li>
+</ul>
+
+<h3>Run Locally (Example)</h3>
+<blockquote class="blockquote">
+    <p class="mb-0">
+        Actual arguments depend on your <code>Program.cs</code> and CLI design.
+        The following shows a recommended invocation pattern.
+    </p>
+</blockquote>
+
+<pre class="bg-light border rounded p-3"><code class="language-bash">dotnet restore
+dotnet build -c Release
+
+# Run rule generation (example)
+dotnet run -c Release -- \
+  --out ./dist \
+  --origin "local"</code></pre>
