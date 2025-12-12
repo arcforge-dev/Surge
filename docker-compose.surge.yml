@@ -1,0 +1,20 @@
+services:
+  surge:
+    build:
+      context: .
+      dockerfile: Surge/Dockerfile
+    image: arcforge-surge:latest
+    container_name: surge
+    restart: unless-stopped
+    volumes:
+      - ruleset-data:/RuleSet
+    networks:
+      - my_citadel_network
+
+volumes:
+  ruleset-data:
+
+networks:
+  my_citadel_network:
+    external: true
+

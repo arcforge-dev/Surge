@@ -1,6 +1,14 @@
 ﻿FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-USER $APP_UID
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /RuleSet /app/wwwroot/ruleset \
+    && chown -R app:app /RuleSet /app
+
+USER app
+
 EXPOSE 8080
 EXPOSE 8081
 
@@ -20,4 +28,5 @@ RUN dotnet publish "./Surge.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:U
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "Surge.dll"]
