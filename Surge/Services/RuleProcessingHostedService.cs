@@ -5,16 +5,19 @@ namespace Surge.Services;
 
 public sealed class RuleProcessingHostedService : BackgroundService
 {
+    private readonly RuleRepositorySyncService _repoSync;
     private readonly RuleProcessingService _processor;
     private readonly ILogger<RuleProcessingHostedService> _logger;
     private readonly RuleProcessingOptions _options;
     private PeriodicTimer? _timer;
 
     public RuleProcessingHostedService(
+        RuleRepositorySyncService repoSync,
         RuleProcessingService processor,
         ILogger<RuleProcessingHostedService> logger,
         IOptions<RuleProcessingOptions> options)
     {
+        _repoSync = repoSync;
         _processor = processor;
         _logger = logger;
         _options = options.Value;
@@ -46,6 +49,9 @@ public sealed class RuleProcessingHostedService : BackgroundService
         try
         {
             _logger.LogInformation("Rule processing started at {Time}", DateTimeOffset.UtcNow);
+            _logger.LogInformation("Repository sync started at {Time}", DateTimeOffset.UtcNow);
+            _repoSync.SyncRepositories(cancellationToken);
+            _logger.LogInformation("Repository sync completed at {Time}", DateTimeOffset.UtcNow);
             await _processor.ProcessAsync(cancellationToken);
             _logger.LogInformation("Rule processing completed at {Time}", DateTimeOffset.UtcNow);
         }
@@ -61,4 +67,3 @@ public sealed class RuleProcessingHostedService : BackgroundService
         base.Dispose();
     }
 }
-

@@ -17,6 +17,7 @@ builder.Services.AddOptions<RuleProcessingOptions>()
 builder.Services.AddSingleton<RuleProcessingService>();
 builder.Services.AddSingleton<RuleSetIndexService>();
 builder.Services.AddSingleton<RuleSetFileService>();
+builder.Services.AddSingleton<RuleRepositorySyncService>();
 builder.Services.AddHostedService<RuleProcessingHostedService>();
 
 var app = builder.Build();
