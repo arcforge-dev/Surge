@@ -27,6 +27,6 @@ RUN dotnet publish "./Surge.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:U
 
 FROM base AS final
 WORKDIR /app
-COPY --from=publish /app/publish .
+COPY --from=publish --chown=app:app /app/publish .
 ENV ASPNETCORE_URLS=http://+:8080
 ENTRYPOINT ["dotnet", "Surge.dll"]
