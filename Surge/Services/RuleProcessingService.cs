@@ -51,6 +51,8 @@ public sealed class RuleProcessingService {
                 throw new DirectoryNotFoundException($"Rule repository not found at {repoRoot}");
             }
 
+            var personalClash = Path.Combine(repoRoot, "..", "Surge","Rules");
+            var personalSurge = personalClash;
             var sourceBlackClash = Path.Combine(repoRoot, "ios_rule_script", "rule", "Clash");
             var sourceBlackSurge = Path.Combine(repoRoot, "ios_rule_script", "rule", "Surge");
             var sourceSkkClash = Path.Combine(repoRoot, "ruleset.skk.moe", "Clash");
@@ -63,10 +65,12 @@ public sealed class RuleProcessingService {
             }
             Directory.CreateDirectory(outputRoot);
 
-            await ProcessClientAsync(sourceSkkClash, Path.Combine(outputRoot, "Clash"), "txt", cancellationToken);
-            await ProcessClientAsync(sourceSkkSurge, Path.Combine(outputRoot, "Surge"), "conf", cancellationToken);
-            await ProcessClientAsync(sourceBlackClash, Path.Combine(outputRoot, "Clash"), "txt", cancellationToken);
-            await ProcessClientAsync(sourceBlackSurge, Path.Combine(outputRoot, "Surge"), "conf", cancellationToken);
+            await ProcessClientAsync(personalClash, Path.Combine(outputRoot, "Clash"), "txt", false, cancellationToken);
+            await ProcessClientAsync(personalSurge, Path.Combine(outputRoot, "Surge"), "conf", false, cancellationToken);
+            await ProcessClientAsync(sourceSkkClash, Path.Combine(outputRoot, "Clash"), "txt", true, cancellationToken);
+            await ProcessClientAsync(sourceSkkSurge, Path.Combine(outputRoot, "Surge"), "conf", true, cancellationToken);
+            await ProcessClientAsync(sourceBlackClash, Path.Combine(outputRoot, "Clash"), "txt", true, cancellationToken);
+            await ProcessClientAsync(sourceBlackSurge, Path.Combine(outputRoot, "Surge"), "conf", true, cancellationToken);
         }
         finally
         {
@@ -74,7 +78,7 @@ public sealed class RuleProcessingService {
         }
     }
 
-    private Task ProcessClientAsync(string sourceRoot, string outputRoot, string extension, CancellationToken cancellationToken)
+    private Task ProcessClientAsync(string sourceRoot, string outputRoot, string extension, bool thirdParty, CancellationToken cancellationToken)
     {
         if (!Directory.Exists(sourceRoot))
         {
@@ -90,13 +94,20 @@ public sealed class RuleProcessingService {
             foreach (var file in Directory.EnumerateFiles(directory))
             {
                 var category = Path.GetFileName(directory)!;
-                if (NoCategorys.Contains(category))
+                if (!thirdParty)
                 {
-                    category = "skk_" + Path.GetFileNameWithoutExtension(file);
+                    category = "arcforge_" + Path.GetFileNameWithoutExtension(file);
                 }
                 else
                 {
-                    category = "black_" + category;
+                    if (NoCategorys.Contains(category))
+                    {
+                        category = "skk_" + Path.GetFileNameWithoutExtension(file);
+                    }
+                    else
+                    {
+                        category = "black_" + category;
+                    }
                 }
                 ProcessFile(file, category.ToLower(), aggregate, cancellationToken);
             }
@@ -324,7 +335,7 @@ public sealed class RuleProcessingService {
                 "#########################################"
             };
         }
-        else if (fileName.StartsWith("black_", StringComparison.OrdinalIgnoreCase))
+        else if (fileName.StartsWith("black_", StringComparison.OrdinalIgnoreCase) || fileName.StartsWith("arcforge_", StringComparison.OrdinalIgnoreCase))
         {
             headerLines = new List<string>(16)
             {
