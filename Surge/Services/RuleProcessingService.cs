@@ -51,8 +51,9 @@ public sealed class RuleProcessingService {
                 throw new DirectoryNotFoundException($"Rule repository not found at {repoRoot}");
             }
 
-            var personalClash = Path.Combine(repoRoot, "..", "Surge","Rules");
-            var personalSurge = personalClash;
+            var personalRulesRoot = Path.GetFullPath(Path.Combine(_environment.ContentRootPath, "Rules"));
+            var personalClash = personalRulesRoot;
+            var personalSurge = personalRulesRoot;
             var sourceBlackClash = Path.Combine(repoRoot, "ios_rule_script", "rule", "Clash");
             var sourceBlackSurge = Path.Combine(repoRoot, "ios_rule_script", "rule", "Surge");
             var sourceSkkClash = Path.Combine(repoRoot, "ruleset.skk.moe", "Clash");
@@ -65,8 +66,15 @@ public sealed class RuleProcessingService {
             }
             Directory.CreateDirectory(outputRoot);
 
-            await ProcessClientAsync(personalClash, Path.Combine(outputRoot, "Clash"), "txt", false, cancellationToken);
-            await ProcessClientAsync(personalSurge, Path.Combine(outputRoot, "Surge"), "conf", false, cancellationToken);
+            if (!Directory.Exists(personalRulesRoot))
+            {
+                _logger.LogWarning("Built-in rules directory not found at {Path}. Skipping built-in rules.", personalRulesRoot);
+            }
+            else
+            {
+                await ProcessClientAsync(personalClash, Path.Combine(outputRoot, "Clash"), "txt", false, cancellationToken);
+                await ProcessClientAsync(personalSurge, Path.Combine(outputRoot, "Surge"), "conf", false, cancellationToken);
+            }
             await ProcessClientAsync(sourceSkkClash, Path.Combine(outputRoot, "Clash"), "txt", true, cancellationToken);
             await ProcessClientAsync(sourceSkkSurge, Path.Combine(outputRoot, "Surge"), "conf", true, cancellationToken);
             await ProcessClientAsync(sourceBlackClash, Path.Combine(outputRoot, "Clash"), "txt", true, cancellationToken);

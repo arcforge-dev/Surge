@@ -1,6 +1,7 @@
 using Surge.Components;
 using Surge.Options;
 using Surge.Services;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.StaticFiles;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,6 +10,25 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+var runningInContainer = string.Equals(
+    Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"),
+    "true",
+    StringComparison.OrdinalIgnoreCase);
+
+var keysDirectory = builder.Configuration["DataProtection:KeysDirectory"];
+if (string.IsNullOrWhiteSpace(keysDirectory) && runningInContainer)
+{
+    keysDirectory = "/RuleSet/.aspnet/DataProtection-Keys";
+}
+
+if (!string.IsNullOrWhiteSpace(keysDirectory))
+{
+    builder.Services
+        .AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(keysDirectory))
+        .SetApplicationName("Surge");
+}
 
 builder.Services.AddOptions<RuleProcessingOptions>()
     .BindConfiguration("RuleProcessing")

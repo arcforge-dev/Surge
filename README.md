@@ -83,4 +83,6 @@ docker pull ryancooper001/arcforge-surge:latest
 docker run --rm -p 8080:8080 -v surge-ruleset:/RuleSet --name surge ryancooper001/arcforge-surge:latest
 ```
 
+Keeping the `/RuleSet` volume ensures generated rules and ASP.NET Data Protection keys persist across container recreations (avoids antiforgery token decryption errors after redeploys).
+
 Then open `http://localhost:8080`.
