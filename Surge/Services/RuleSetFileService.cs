@@ -53,6 +53,11 @@ public sealed class RuleSetFileService
         string fileName,
         CancellationToken cancellationToken = default)
     {
+        if (Path.GetExtension(fileName).Equals(".mrs", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
         if (string.IsNullOrWhiteSpace(clientName) ||
             string.IsNullOrWhiteSpace(categoryName) ||
             string.IsNullOrWhiteSpace(fileName))

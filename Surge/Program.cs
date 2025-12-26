@@ -3,6 +3,7 @@ using Surge.Options;
 using Surge.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.StaticFiles;
+using System.IO;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,9 +57,18 @@ app.UseHttpsRedirection();
 
 var contentTypeProvider = new FileExtensionContentTypeProvider();
 contentTypeProvider.Mappings[".conf"] = "text/plain";
+contentTypeProvider.Mappings[".mrs"] = "application/octet-stream";
 app.UseStaticFiles(new StaticFileOptions
 {
-    ContentTypeProvider = contentTypeProvider
+    ContentTypeProvider = contentTypeProvider,
+    OnPrepareResponse = ctx =>
+    {
+        if (Path.GetExtension(ctx.File.PhysicalPath).Equals(".mrs", StringComparison.OrdinalIgnoreCase))
+        {
+            var fileName = Path.GetFileName(ctx.File.PhysicalPath);
+            ctx.Context.Response.Headers.TryAdd("Content-Disposition", $"attachment; filename=\"{fileName}\"");
+        }
+    }
 });
 
 app.UseAntiforgery();

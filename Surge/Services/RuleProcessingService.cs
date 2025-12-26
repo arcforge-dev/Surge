@@ -2,6 +2,9 @@ namespace Surge.Services;
 
 using System.Net;
 using System.Net.Sockets;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Extensions.Options;
 using Options;
 
@@ -18,6 +21,8 @@ public sealed class RuleProcessingService {
     {
         "ip", "non_ip", "domainset"
     }, StringComparer.OrdinalIgnoreCase);
+
+    private static readonly Uri MihomoRepo = new("https://github.com/MetaCubeX/mihomo.git");
 
     private readonly IWebHostEnvironment _environment;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -84,6 +89,11 @@ public sealed class RuleProcessingService {
                 Path.Combine(outputRoot, "Clash"),
                 Path.Combine(outputRoot, "MihomoRuleSet"),
                 cancellationToken);
+
+            var mihomoRepoRoot = Path.Combine(repoRoot, "mihomo");
+            var mihomoRuleSetRoot = Path.Combine(outputRoot, "MihomoRuleSet");
+            var converterPath = await BuildMihomoBinaryAsync(mihomoRepoRoot, cancellationToken);
+            await ConvertMihomoOutputsAsync(mihomoRuleSetRoot, converterPath, cancellationToken);
         }
         finally
         {
@@ -641,6 +651,410 @@ public sealed class RuleProcessingService {
         public List<string> Domain { get; } = new();
         public List<string> Ip { get; } = new();
         public List<string> NonIp { get; } = new();
+    }
+
+    private sealed record GoBuildTarget(string GoOs, string GoArch, string OutputName, bool IsHost);
+
+    private async Task<string> BuildMihomoBinaryAsync(string repoPath, CancellationToken cancellationToken)
+    {
+        await EnsureMihomoRepositoryAsync(repoPath, cancellationToken);
+        var tag = await GetLatestMihomoTagAsync(repoPath, cancellationToken);
+
+        _logger.LogInformation("Switching mihomo repository to latest tag {Tag}", tag);
+        await RunGitAsync(repoPath, $"checkout {Quote(tag)}", cancellationToken);
+
+        _logger.LogInformation("Restoring Go modules for mihomo");
+        await RunProcessAsync("go", "mod download", repoPath, environment: null, cancellationToken);
+
+        var binDirectory = Path.Combine(repoPath, "bin");
+        Directory.CreateDirectory(binDirectory);
+
+        var targets = GetMihomoBuildTargets();
+        string? hostBinary = null;
+
+        foreach (var target in targets)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var output = Path.Combine(binDirectory, target.OutputName);
+
+            try
+            {
+                await RunGoBuildAsync(repoPath, output, target, cancellationToken);
+
+                if (target.IsHost)
+                {
+                    hostBinary = output;
+                }
+            }
+            catch (Exception ex)
+            {
+                if (target.IsHost)
+                {
+                    throw;
+                }
+
+                _logger.LogWarning(ex, "Failed to build optional mihomo binary for {Os}/{Arch}", target.GoOs, target.GoArch);
+            }
+        }
+
+        if (hostBinary is null || !File.Exists(hostBinary))
+        {
+            throw new InvalidOperationException("Failed to build mihomo binary for host platform.");
+        }
+
+        _logger.LogInformation("Mihomo binaries updated. Host binary at {Path}", hostBinary);
+        return hostBinary;
+    }
+
+    private async Task EnsureMihomoRepositoryAsync(string repoPath, CancellationToken cancellationToken)
+    {
+        var gitDir = Path.Combine(repoPath, ".git");
+        var parent = Path.GetDirectoryName(repoPath);
+
+        if (Directory.Exists(gitDir))
+        {
+            _logger.LogInformation("Updating mihomo repository at {Path}", repoPath);
+            await RunGitAsync(repoPath, "fetch --all --tags --prune", cancellationToken);
+            var defaultBranch = await GetDefaultBranchAsync(repoPath, cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(defaultBranch))
+            {
+                await RunGitAsync(repoPath, $"checkout {Quote(defaultBranch)}", cancellationToken);
+            }
+
+            await RunGitAsync(repoPath, "pull --ff-only", cancellationToken);
+            return;
+        }
+
+        if (Directory.Exists(repoPath))
+        {
+            Directory.Delete(repoPath, recursive: true);
+        }
+
+        if (!string.IsNullOrEmpty(parent))
+        {
+            Directory.CreateDirectory(parent);
+        }
+
+        _logger.LogInformation("Cloning mihomo repository to {Path}", repoPath);
+        await RunGitAsync(parent ?? ".", $"clone {Quote(MihomoRepo.ToString())} {Quote(repoPath)}", cancellationToken);
+    }
+
+    private async Task<string?> GetDefaultBranchAsync(string repoPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var output = await RunGitAsync(repoPath, "symbolic-ref --short refs/remotes/origin/HEAD", cancellationToken);
+            var branch = output.Trim();
+            if (branch.StartsWith("origin/", StringComparison.OrdinalIgnoreCase))
+            {
+                branch = branch[7..];
+            }
+
+            return string.IsNullOrWhiteSpace(branch) ? null : branch;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to determine default branch for mihomo repository. Falling back to current HEAD.");
+            return null;
+        }
+    }
+
+    private async Task<string> GetLatestMihomoTagAsync(string repoPath, CancellationToken cancellationToken)
+    {
+        var output = await RunGitAsync(repoPath, "tag --list --sort=-v:refname", cancellationToken);
+        var tags = output
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => t.Trim());
+
+        foreach (var tag in tags)
+        {
+            if (tag.Length == 0)
+            {
+                continue;
+            }
+
+            if (tag.Contains("Prerelease-Alpha", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!tag.Any(char.IsDigit))
+            {
+                continue;
+            }
+
+            return tag;
+        }
+
+        throw new InvalidOperationException("No suitable mihomo tag found.");
+    }
+
+    private async Task RunGoBuildAsync(string repoPath, string output, GoBuildTarget target, CancellationToken cancellationToken)
+    {
+        var args = $"build -trimpath -ldflags \"-s -w -buildid=\" -o {Quote(output)} ./";
+        var env = new Dictionary<string, string?>
+        {
+            ["GOOS"] = target.GoOs,
+            ["GOARCH"] = target.GoArch,
+            ["CGO_ENABLED"] = "0"
+        };
+
+        _logger.LogInformation("Building mihomo for {Os}/{Arch} -> {Output}", target.GoOs, target.GoArch, output);
+        await RunProcessAsync("go", args, repoPath, env, cancellationToken);
+
+        if (!target.OutputName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            await EnsureExecutableAsync(output, cancellationToken);
+        }
+    }
+
+    private async Task EnsureExecutableAsync(string path, CancellationToken cancellationToken)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(path))
+        {
+            return;
+        }
+
+        await RunProcessAsync("chmod", $"+x {Quote(path)}", Path.GetDirectoryName(path) ?? ".", environment: null, cancellationToken);
+    }
+
+    private async Task<string> RunGitAsync(string workingDirectory, string arguments, CancellationToken cancellationToken)
+    {
+        var env = new Dictionary<string, string?>
+        {
+            ["GIT_TERMINAL_PROMPT"] = "0",
+            ["GIT_ASKPASS"] = "echo"
+        };
+
+        var output = await RunProcessAsync("git", arguments, workingDirectory, env, cancellationToken);
+        return output;
+    }
+
+    private async Task<string> RunProcessAsync(
+        string fileName,
+        string arguments,
+        string workingDirectory,
+        IDictionary<string, string?>? environment,
+        CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
+        };
+
+        if (environment != null)
+        {
+            foreach (var pair in environment)
+            {
+                startInfo.Environment[pair.Key] = pair.Value;
+            }
+        }
+
+        using var process = Process.Start(startInfo);
+        if (process == null)
+        {
+            throw new InvalidOperationException($"Failed to start process {fileName}");
+        }
+
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        await process.WaitForExitAsync(cancellationToken);
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"{fileName} {arguments} failed in {workingDirectory} (exit {process.ExitCode}).\n{stdout}\n{stderr}");
+        }
+
+        return stdout;
+    }
+
+    private IReadOnlyList<GoBuildTarget> GetMihomoBuildTargets()
+    {
+        var hostOs = GetHostGoOs();
+        var hostArch = GetHostGoArch();
+        var targets = new List<GoBuildTarget>
+        {
+            new(hostOs, hostArch, GetMihomoBinaryName(hostOs, hostArch), IsHost: true)
+        };
+
+        var additionalTargets = new[]
+        {
+            new { Os = "windows", Arch = "amd64" },
+            new { Os = "linux", Arch = "amd64" },
+            new { Os = "darwin", Arch = "amd64" },
+            new { Os = "darwin", Arch = "arm64" }
+        };
+
+        foreach (var target in additionalTargets)
+        {
+            var name = GetMihomoBinaryName(target.Os, target.Arch);
+            var isHost = target.Os.Equals(hostOs, StringComparison.OrdinalIgnoreCase) &&
+                         target.Arch.Equals(hostArch, StringComparison.OrdinalIgnoreCase);
+
+            if (targets.Any(t => t.OutputName.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            targets.Add(new GoBuildTarget(target.Os, target.Arch, name, isHost));
+        }
+
+        return targets;
+    }
+
+    private static string GetHostGoOs()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return "windows";
+        }
+
+        if (OperatingSystem.IsMacOS())
+        {
+            return "darwin";
+        }
+
+        return "linux";
+    }
+
+    private static string GetHostGoArch()
+    {
+        return RuntimeInformation.ProcessArchitecture switch
+        {
+            Architecture.Arm64 => "arm64",
+            Architecture.X64 => "amd64",
+            Architecture.X86 => "386",
+            Architecture.Arm => "arm",
+            _ => "amd64"
+        };
+    }
+
+    private static string GetMihomoBinaryName(string goOs, string goArch)
+    {
+        var suffix = $"{goOs}-{goArch}";
+        return goOs.Equals("windows", StringComparison.OrdinalIgnoreCase)
+            ? $"mihomo-{suffix}.exe"
+            : $"mihomo-{suffix}";
+    }
+
+    private async Task ConvertMihomoOutputsAsync(string mihomoRoot, string converterPath, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(converterPath))
+        {
+            _logger.LogWarning("Mihomo converter not found at {Path}. Skipping .mrs generation.", converterPath);
+            return;
+        }
+
+        await ConvertDirectoryAsync(Path.Combine(mihomoRoot, "domainset"), "domain", converterPath, cancellationToken);
+        await ConvertDirectoryAsync(Path.Combine(mihomoRoot, "ip"), "ipcidr", converterPath, cancellationToken);
+    }
+
+    private async Task ConvertDirectoryAsync(string sourceDir, string behavior, string converterPath, CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceDir))
+        {
+            _logger.LogWarning("MihomoRuleSet {Behavior} directory not found at {Directory}", behavior, sourceDir);
+            return;
+        }
+
+        ClearMrsFiles(sourceDir);
+
+        foreach (var path in Directory.EnumerateFiles(sourceDir).Where(p => !p.EndsWith(".mrs", StringComparison.OrdinalIgnoreCase)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var temp = await CreateCleanTempFileAsync(path, behavior, cancellationToken);
+            var target = Path.ChangeExtension(path, ".mrs");
+
+            try
+            {
+                var args = $"convert-ruleset {behavior} text {Quote(temp)} {Quote(target)}";
+                _logger.LogInformation("Converting {Source} to .mrs", path);
+                await RunProcessAsync(converterPath, args, Path.GetDirectoryName(converterPath) ?? ".", environment: null, cancellationToken);
+            }
+            finally
+            {
+                TryDelete(temp);
+            }
+        }
+    }
+
+    private static async Task<string> CreateCleanTempFileAsync(string sourceFile, string behavior, CancellationToken cancellationToken)
+    {
+        var tempPath = Path.GetTempFileName();
+        var isIpBehavior = behavior.Equals("ipcidr", StringComparison.OrdinalIgnoreCase);
+        var cleanLines = File.ReadLines(sourceFile)
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrEmpty(line) &&
+                           !line.StartsWith("#") &&
+                           !line.StartsWith("//"))
+            .Select(line => isIpBehavior ? NormalizeIpForMihomoRule(line) : line);
+
+        await File.WriteAllLinesAsync(tempPath, cleanLines, cancellationToken);
+        return tempPath;
+    }
+
+    private static string NormalizeIpForMihomoRule(string line)
+    {
+        if (line.Contains('/'))
+        {
+            return line;
+        }
+
+        if (IPAddress.TryParse(line, out var ip))
+        {
+            return ip.AddressFamily == AddressFamily.InterNetworkV6
+                ? line + "/128"
+                : line + "/32";
+        }
+
+        return line;
+    }
+
+    private static void ClearMrsFiles(string directory)
+    {
+        foreach (var file in Directory.EnumerateFiles(directory, "*.mrs", SearchOption.TopDirectoryOnly))
+        {
+            TryDelete(file);
+        }
+    }
+
+    private static void TryDelete(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static string Quote(string value)
+    {
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
     }
 
     private enum MihomoDefaultCategory

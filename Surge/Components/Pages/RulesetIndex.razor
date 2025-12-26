@@ -6,7 +6,7 @@
 @inject RuleSetIndexService IndexService
 
 <h1>Ruleset</h1>
-<p class="text-muted">Browse generated Clash, Surge, and MihomoRuleSet files. Click a file to open its raw content.</p>
+<p class="text-muted">Browse generated Clash, Surge, and MihomoRuleSet files. .mrs files download directly; others open for viewing.</p>
 
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 ruleset-toolbar">
     <input class="form-control ruleset-search" placeholder="Search files..." @bind="search" @bind:event="oninput" />
@@ -53,8 +53,19 @@ else
                                     <ul class="list-group list-group-flush">
                                         @foreach (var file in filteredFiles)
                                         {
+                                            var isMrs = IsMrs(file.Name);
                                             <li class="list-group-item ruleset-file">
-                                                <a href="@GetViewUrl(client.Name, category.Name, file.Name)">@file.Name</a>
+                                                @if (isMrs)
+                                                {
+                                                    <a class="d-flex align-items-center justify-content-between gap-2 text-decoration-none" href="@file.Url" download>
+                                                        <span class="text-truncate">@file.Name</span>
+                                                        <span class="badge text-bg-light">Download</span>
+                                                    </a>
+                                                }
+                                                else
+                                                {
+                                                    <a href="@GetViewUrl(client.Name, category.Name, file.Name)">@file.Name</a>
+                                                }
                                             </li>
                                         }
                                     </ul>
@@ -95,6 +106,11 @@ else
         return files
             .Where(f => f.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
             .ToList();
+    }
+
+    private static bool IsMrs(string fileName)
+    {
+        return fileName.EndsWith(".mrs", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetViewUrl(string clientName, string categoryName, string fileName)

@@ -2,7 +2,7 @@
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates golang-go \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /RuleSet /app/wwwroot/ruleset \
     && chown -R app:app /RuleSet /app
