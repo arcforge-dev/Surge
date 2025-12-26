@@ -81,21 +81,19 @@ public sealed class RuleRepositorySyncService
         if (Directory.Exists(gitDir))
         {
             _logger.LogInformation("Updating {Repo} via git pull.", repoName);
-            await RunGitAsync(target, "pull --ff-only", cancellationToken);
-            return;
+            try
+            {
+                await RunGitAsync(target, "pull --ff-only", cancellationToken);
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "git pull failed for {Repo}. Re-cloning repository.", repoName);
+                DeleteDirectoryIfExists(target);
+            }
         }
 
-        if (Directory.Exists(target))
-        {
-            Directory.Delete(target, recursive: true);
-        }
-
-        _logger.LogInformation("Cloning {Repo} with sparse checkout.", repoName);
-
-        await RunGitAsync(root, $"clone --filter=blob:none --no-checkout {Quote(url.ToString())} {Quote(target)}", cancellationToken);
-        await RunGitAsync(target, "sparse-checkout init --cone", cancellationToken);
-        await RunGitAsync(target, $"sparse-checkout set {string.Join(' ', sparsePaths.Select(Quote))}", cancellationToken);
-        await RunGitAsync(target, "checkout", cancellationToken);
+        await CloneRepoAsync(repoName, url, target, sparsePaths, cancellationToken);
     }
 
     private static string Quote(string value)
@@ -146,10 +144,7 @@ public sealed class RuleRepositorySyncService
     {
         try
         {
-            if (Directory.Exists(root))
-            {
-                Directory.Delete(root, recursive: true);
-            }
+            DeleteDirectoryIfExists(root);
         }
         catch (Exception ex)
         {
@@ -160,5 +155,68 @@ public sealed class RuleRepositorySyncService
             Directory.CreateDirectory(root);
         }
     }
-}
 
+    private async Task CloneRepoAsync(
+        string repoName,
+        Uri url,
+        string target,
+        string[] sparsePaths,
+        CancellationToken cancellationToken)
+    {
+        DeleteDirectoryIfExists(target);
+
+        _logger.LogInformation("Cloning {Repo} with sparse checkout.", repoName);
+
+        await RunGitAsync(RepositoryRoot, $"clone --filter=blob:none --no-checkout {Quote(url.ToString())} {Quote(target)}", cancellationToken);
+        await RunGitAsync(target, "sparse-checkout init --cone", cancellationToken);
+        await RunGitAsync(target, $"sparse-checkout set {string.Join(' ', sparsePaths.Select(Quote))}", cancellationToken);
+        await RunGitAsync(target, "checkout", cancellationToken);
+    }
+
+    private void DeleteDirectoryIfExists(string path)
+    {
+        if (!Directory.Exists(path))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(path, recursive: true);
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete {Path} in one pass. Retrying entry-by-entry.", path);
+        }
+
+        try
+        {
+            foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+            {
+                try
+                {
+                    if (Directory.Exists(entry))
+                    {
+                        Directory.Delete(entry, recursive: true);
+                    }
+                    else
+                    {
+                        File.Delete(entry);
+                    }
+                }
+                catch
+                {
+                    // best effort
+                }
+            }
+
+            Directory.Delete(path, recursive: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to remove directory {Path}", path);
+            throw;
+        }
+    }
+}
