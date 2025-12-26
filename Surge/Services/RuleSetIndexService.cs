@@ -13,7 +13,7 @@ public sealed record RuleSetIndex(IReadOnlyList<RuleSetClient> Clients);
 
 public sealed class RuleSetIndexService
 {
-    private static readonly string[] ClientOrder = ["Clash", "Surge"];
+    private static readonly string[] ClientOrder = ["Clash", "Surge", "MihomoRuleSet"];
     private static readonly string[] CategoryOrder = ["domainset", "ip", "non_ip"];
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
 

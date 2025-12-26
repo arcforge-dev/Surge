@@ -79,11 +79,66 @@ public sealed class RuleProcessingService {
             await ProcessClientAsync(sourceSkkSurge, Path.Combine(outputRoot, "Surge"), "conf", true, cancellationToken);
             await ProcessClientAsync(sourceBlackClash, Path.Combine(outputRoot, "Clash"), "txt", true, cancellationToken);
             await ProcessClientAsync(sourceBlackSurge, Path.Combine(outputRoot, "Surge"), "conf", true, cancellationToken);
+
+            await BuildMihomoRuleSetAsync(
+                Path.Combine(outputRoot, "Clash"),
+                Path.Combine(outputRoot, "MihomoRuleSet"),
+                cancellationToken);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    private Task BuildMihomoRuleSetAsync(
+        string clashRoot,
+        string mihomoRoot,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(clashRoot))
+        {
+            _logger.LogWarning("Cannot build MihomoRuleSet. Clash output not found at {ClashRoot}", clashRoot);
+            return Task.CompletedTask;
+        }
+
+        if (Directory.Exists(mihomoRoot))
+        {
+            Directory.Delete(mihomoRoot, recursive: true);
+        }
+
+        Directory.CreateDirectory(mihomoRoot);
+        var aggregate = new Dictionary<string, MihomoRuleSegments>(StringComparer.OrdinalIgnoreCase);
+
+        ProcessMihomoCategory(
+            Path.Combine(clashRoot, "domainset"),
+            aggregate,
+            MihomoDefaultCategory.DomainSet,
+            cancellationToken);
+
+        ProcessMihomoCategory(
+            Path.Combine(clashRoot, "ip"),
+            aggregate,
+            MihomoDefaultCategory.Mixed,
+            cancellationToken);
+
+        ProcessMihomoCategory(
+            Path.Combine(clashRoot, "non_ip"),
+            aggregate,
+            MihomoDefaultCategory.Mixed,
+            cancellationToken);
+
+        WriteMihomoSegments(mihomoRoot, aggregate);
+
+        _logger.LogInformation(
+            "Built MihomoRuleSet at {MihomoRoot}. Files={FileCount}, domain lines={DomainCount}, ip lines={IpCount}, non-ip lines={NonIpCount}",
+            mihomoRoot,
+            aggregate.Count,
+            aggregate.Values.Sum(x => x.Domain.Count),
+            aggregate.Values.Sum(x => x.Ip.Count),
+            aggregate.Values.Sum(x => x.NonIp.Count));
+
+        return Task.CompletedTask;
     }
 
     private Task ProcessClientAsync(string sourceRoot, string outputRoot, string extension, bool thirdParty, CancellationToken cancellationToken)
@@ -186,6 +241,190 @@ public sealed class RuleProcessingService {
             WriteSegment(Path.Combine(outputRoot, "domainset"), targetName, builder.DomainSet);
         }
 
+    }
+
+    private void ProcessMihomoCategory(
+        string sourceDir,
+        IDictionary<string, MihomoRuleSegments> aggregate,
+        MihomoDefaultCategory defaultCategory,
+        CancellationToken cancellationToken)
+    {
+        if (!Directory.Exists(sourceDir))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.EnumerateFiles(sourceDir).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        {
+            var fileName = Path.GetFileName(file);
+            var segments = aggregate.TryGetValue(fileName, out var existing)
+                ? existing
+                : aggregate[fileName] = new MihomoRuleSegments();
+
+            foreach (var raw in File.ReadLines(file))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var line = TrimRuleLine(raw);
+                if (line is null)
+                {
+                    continue;
+                }
+
+                if (TryClassifyMihomoLine(line, segments))
+                {
+                    continue;
+                }
+
+                if (defaultCategory == MihomoDefaultCategory.DomainSet)
+                {
+                    segments.Domain.Add(line);
+                    continue;
+                }
+
+                if (TryAddIpLiteral(line, segments.Ip))
+                {
+                    continue;
+                }
+
+                segments.NonIp.Add(line);
+            }
+        }
+    }
+
+    private bool TryClassifyMihomoLine(string line, MihomoRuleSegments segments)
+    {
+        var commaIndex = line.IndexOf(',');
+        if (commaIndex <= 0)
+        {
+            return false;
+        }
+
+        var keyword = line[..commaIndex].Trim();
+        var payload = line[(commaIndex + 1)..];
+
+        if (keyword.Equals("DOMAIN", StringComparison.OrdinalIgnoreCase))
+        {
+            var domain = NormalizeDomainForMihomo(payload, allowLeadingPlus: false);
+            if (domain.Length > 0)
+            {
+                segments.Domain.Add(domain);
+            }
+
+            return true;
+        }
+
+        if (keyword.Equals("DOMAIN-SUFFIX", StringComparison.OrdinalIgnoreCase))
+        {
+            var domain = NormalizeDomainForMihomo(payload, allowLeadingPlus: false);
+            if (domain.Length > 0)
+            {
+                segments.Domain.Add("+." + domain);
+            }
+
+            return true;
+        }
+
+        if (keyword.Equals("IP-CIDR", StringComparison.OrdinalIgnoreCase) ||
+            keyword.Equals("IP-CIDR6", StringComparison.OrdinalIgnoreCase))
+        {
+            var ip = ExtractPrimaryValue(payload);
+            if (!string.IsNullOrEmpty(ip))
+            {
+                segments.Ip.Add(ip);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string? TrimRuleLine(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var line = raw.Trim();
+        if (line.StartsWith("#") || line.StartsWith("//"))
+        {
+            return null;
+        }
+
+        return line;
+    }
+
+    private static string NormalizeDomainForMihomo(string input, bool allowLeadingPlus)
+    {
+        var core = ExtractPrimaryValue(input);
+        var hasPlusPrefix = core.StartsWith("+.");
+        core = hasPlusPrefix ? core[2..] : core;
+
+        core = core.TrimStart('.').Trim();
+        if (core.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var normalized = core.ToLowerInvariant();
+        if (allowLeadingPlus && hasPlusPrefix)
+        {
+            return "+." + normalized;
+        }
+
+        return normalized;
+    }
+
+    private static string ExtractPrimaryValue(string input)
+    {
+        var value = input.Trim();
+        var commaIndex = value.IndexOf(',');
+        if (commaIndex >= 0)
+        {
+            value = value[..commaIndex];
+        }
+
+        return value.Trim();
+    }
+
+    private static bool TryAddIpLiteral(string line, ICollection<string> target)
+    {
+        var core = ExtractPrimaryValue(line);
+        if (IsCidr(core) || IPAddress.TryParse(core, out _))
+        {
+            target.Add(core);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static void WriteMihomoSegments(string mihomoRoot, IDictionary<string, MihomoRuleSegments> aggregate)
+    {
+        if (aggregate.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var (fileName, segments) in aggregate.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            WriteMihomoCategory(Path.Combine(mihomoRoot, "domainset"), fileName, segments.Domain);
+            WriteMihomoCategory(Path.Combine(mihomoRoot, "ip"), fileName, segments.Ip);
+            WriteMihomoCategory(Path.Combine(mihomoRoot, "non_ip"), fileName, segments.NonIp);
+        }
+    }
+
+    private static void WriteMihomoCategory(string directory, string fileName, List<string> lines)
+    {
+        if (lines.Count == 0)
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(directory);
+        File.WriteAllLines(Path.Combine(directory, fileName), lines);
     }
 
     private static RuleSegments Classify(IEnumerable<string> lines, string origin)
@@ -376,6 +615,19 @@ public sealed class RuleProcessingService {
         }
 
         File.WriteAllLines(targetPath, lines);
+    }
+
+    private sealed class MihomoRuleSegments
+    {
+        public List<string> Domain { get; } = new();
+        public List<string> Ip { get; } = new();
+        public List<string> NonIp { get; } = new();
+    }
+
+    private enum MihomoDefaultCategory
+    {
+        DomainSet,
+        Mixed
     }
 
     private sealed record RuleSegments(List<string> Ip, List<string> NonIp, List<string> DomainSet);
